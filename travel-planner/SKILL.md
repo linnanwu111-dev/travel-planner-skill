@@ -65,6 +65,8 @@ python3 <skill目录>/scripts/delivery_check.py /绝对路径/plan.json
 python3 <skill目录>/scripts/render.py /绝对路径/plan.json --out /绝对路径/新的攻略目录
 ```
 
+入住/抵店放行李使用hotel节点，住宿费用关联该节点；晚间返店stay不重复收费。价格未核实也须保留unknown住宿费用记录。按 planning-handoff.md 的酒店规则校验，并在实际发布页核对入住卡类型、价格与总预算。
+
 输出 `index.html`、`page-packet.json`、`sources.json`、素材与运行组件。仅使用 `assets/current/template.html`；不让用户挑旧设计，不调用旧trip.py或开发目录样例。渲染器拒绝覆盖已有目录。
 
 地点确认后读取并执行 [公开网页配图](references/place-images.md)：优先普通网页/图片搜索，查城市代表性景观封面，以及每个已选景点、酒店和餐厅的对应实景图。封面选广为人知的城市旅游名片（如杭州西湖全景、长沙橘子洲头或五一广场），不以集贤亭一类局部小景代替城市封面。地点卡严格匹配地点，酒店餐厅匹配具体分店；核对使用条件并实际验证图片加载。不能因小红书不可用而跳过公开网页搜索；无需为了配图调用小红书。

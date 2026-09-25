@@ -114,6 +114,8 @@ def validate(plan, directory=None):
     for c in plan['costs']:
         targets=[('activities',c.get('activity_id')),('transfers',c.get('transfer_id'))];targets=[(k,i) for k,i in targets if i is not None]
         require(len(targets)==1 and targets[0][1] in tables[targets[0][0]],'费用必须只关联一个存在的活动/转场')
+        if c.get('category')=='住宿':
+            require(targets[0][0]=='activities' and tables['activities'][targets[0][1]]['kind']=='hotel','住宿费用必须关联hotel入住节点，不能挂在游览、返店休息或转场：'+c['id'])
         require(c.get('status') in ('quote','reference','estimate','actual','unknown'),'费用状态无效')
         require(type(c.get('quantity')) is int and c['quantity']>0 and c.get('unit'),'费用数量/单位缺失')
         require(cents(c.get('paid_cents')),'已付金额需非负整数分');paid+=c['paid_cents']
@@ -124,6 +126,11 @@ def validate(plan, directory=None):
             if c['status']=='actual': require(c['low_cents']==c['high_cents'],'实际金额不应为区间')
             low+=c['low_cents']*c['quantity'];high+=c['high_cents']*c['quantity'];refs(c,c['status'] in ('quote','reference','actual'))
         if targets[0][0]=='transfers' and tables['transfers'][targets[0][1]]['status']!='ready': require(c['status'] in ('unknown','estimate'),'未核实路线不得引用已确认报价')
+    lodging={c.get('activity_id') for c in plan['costs'] if c.get('category')=='住宿'}
+    for a in plan['activities']:
+        if a['kind']=='hotel':
+            require(bool(a.get('place_id')),'hotel入住节点必须关联酒店地点：'+a['id'])
+            require(a['id'] in lodging,'hotel入住节点缺住宿费用；价格未核实时添加unknown记录，不得漏项：'+a['id'])
     covered={c.get('activity_id') for c in plan['costs']}
     for a in plan['activities']:
         if a['kind'] in ('journey','hotel','meal','place') and a['id'] not in covered:
