@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check durable evidence coverage, not the truth of source claims."""
 import argparse,json,pathlib
+from planning import media_permission_issue
 
 def check(plan,root):
     root=pathlib.Path(root).resolve();issues=[]
@@ -12,6 +13,10 @@ def check(plan,root):
         if s.get('status')=='read' and not artifact(s.get('evidence_path')):
             issues.append('来源 '+s['id']+' 标记已读，但缺少私有 evidence_path 原始摘录/返回文件')
     media=[m for m in plan.get('media',[]) if m.get('use_status')=='permitted']
+    if not plan.get('demo'):
+        for m in media:
+            issue=media_permission_issue(m,root)
+            if issue: issues.append('图片 '+str(m.get('id','?'))+'：'+issue)
     missing=[]
     if not any(m.get('role')=='cover' for m in media):missing.append('cover')
     for pid in sorted({a.get('place_id') for a in plan.get('activities',[]) if a.get('kind') in ('place','hotel','stay','meal')}-{None}):

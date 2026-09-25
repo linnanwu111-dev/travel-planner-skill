@@ -134,6 +134,8 @@ def validate(plan, directory=None):
         require(m.get('use_status') in ('permitted','reference_only','unknown'),'图片使用状态无效');refs(m,True)
         if m.get('place_id'): require(m['place_id'] in tables['places'],'图片地点不存在')
         if m['use_status']=='permitted': require(m.get('credit') and (m.get('path') or m.get('url')),'可用图片缺署名/素材')
+        if m['use_status']=='permitted' and not plan.get('demo'):
+            issue=media_permission_issue(m,directory);require(issue is None,issue)
         if m.get('path'):
             path=pathlib.Path(m['path']);require(not path.is_absolute() and '..' not in path.parts,'图片路径越界')
             if directory is not None: require((directory/path).resolve().is_relative_to(directory.resolve()) and (directory/path).is_file(),'图片不存在或路径越界')
@@ -158,6 +160,21 @@ def validate(plan, directory=None):
         require(any(d.get('confirmed') is True and d.get('revision')==plan['revision'] and d.get('scope')=='itinerary' for d in plan['decisions']),'当前版本尚无用户行程确认')
         require(not any(p.get('blocking') for p in plan['pending']),'仍有阻塞性待确认项')
     return {'valid':True,'warnings':warnings,'known_low_cents':low,'known_high_cents':high,'paid_cents':paid,'unknown_cost_items':unknown,'status':plan['status']}
+
+def media_permission_issue(media,directory=None):
+    """Require a permission record; this does not verify the truth of its contents."""
+    permission=media.get('permission')
+    if not isinstance(permission,dict): return '缺少图片许可依据，公开可见或署名不代表授权'
+    if permission.get('basis') not in ('license','owner_authorization','user_owned'): return '图片许可依据类型无效'
+    if permission.get('scope')!='web_delivery' or not permission.get('terms'): return '图片许可未覆盖网页交付或未记录使用条件'
+    value=permission.get('evidence_path')
+    if not isinstance(value,str) or not value: return '图片许可缺少证据文件'
+    path=pathlib.Path(value)
+    if path.is_absolute() or '..' in path.parts: return '图片许可证据路径越界'
+    if directory is not None:
+        root=pathlib.Path(directory).resolve();path=(root/path).resolve()
+        if not path.is_relative_to(root) or not path.is_file() or not path.stat().st_size: return '图片许可证据文件不存在或为空'
+    return None
 
 def export(plan,directory=None):
     report=validate(plan,directory)
