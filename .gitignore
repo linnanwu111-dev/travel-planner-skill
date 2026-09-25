@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.env*
+*.pem
+*.key
+secrets.json
+access-token
+service.json
+trip-changes.json
+output/
