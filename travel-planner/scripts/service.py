@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Query the hosted travel service. Credentials stay in ~/.travel-planner/service.json."""
-import argparse,datetime,getpass,json,math,os,pathlib,subprocess,sys
+import argparse,datetime,getpass,json,math,os,pathlib,subprocess,sys,time,uuid
 BASE=os.environ.get('TRAVEL_SERVICE_URL','https://124.221.232.250').rstrip('/')
 if BASE not in ('https://124.221.232.250','https://www.xiaotouai.online'):raise ValueError('仅支持已配置的HTTPS旅行服务入口')
 CONFIG=pathlib.Path.home()/'.travel-planner/service.json'
@@ -16,16 +16,37 @@ def connection_error():
         pass
     return '旅行服务连接失败，未确认具体原因；请检查服务状态及网络，不自动反复重试'
 
-def request(kind,data):
-    if not CONFIG.exists():raise ValueError('缺少旅行服务访问凭证；运行 service.py configure。无需申请高德或FlyAI Key。')
-    token=json.loads(CONFIG.read_text()).get('token','')
-    if not token or '\n' in token or '\r' in token:raise ValueError('服务凭证无效')
-    r=subprocess.run(['curl','--silent','--show-error','--connect-timeout','10','--max-time','85','--proto','=https','--header','@-','--header','Content-Type: application/json','--data-binary',json.dumps(data,ensure_ascii=False),BASE+ENDPOINTS[kind]],input='Authorization: Bearer '+token,text=True,capture_output=True)
+def save_config(value):
+    CONFIG.parent.mkdir(mode=0o700,parents=True,exist_ok=True)
+    fd=os.open(CONFIG,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
+    with os.fdopen(fd,'w') as f:json.dump(value,f)
+    os.chmod(CONFIG,0o600)
+
+def call(path,data,token=''):
+    r=subprocess.run(['curl','--silent','--show-error','--connect-timeout','10','--max-time','85','--proto','=https','--header','@-','--header','Content-Type: application/json','--data-binary',json.dumps(data,ensure_ascii=False),BASE+path],input=('Authorization: Bearer '+token) if token else '',text=True,capture_output=True)
     if r.returncode:raise ValueError(connection_error())
     try:result=json.loads(r.stdout)
     except ValueError:raise ValueError('旅行服务未返回JSON') from None
     if 'error' in result:raise ValueError('旅行服务：'+str(result['error']))
     return result
+
+def access_token():
+    config=json.loads(CONFIG.read_text()) if CONFIG.exists() else {}
+    token=config.get('token','')
+    if token and config.get('mode')!='trial':return token
+    if token and config.get('expires_at',0)>time.time()+300:return token
+    installation=config.get('installation_id') or uuid.uuid4().hex
+    # Save stable installation identity before enrollment, so retry cannot reset quotas.
+    config['installation_id']=installation;save_config(config)
+    result=call('/v1/access/trial',{'installation_id':installation})
+    if not result.get('token') or not isinstance(result.get('expires_at'),(int,float)):raise ValueError('体验凭证返回无效')
+    save_config(dict(result,installation_id=installation))
+    return result['token']
+
+def request(kind,data):
+    token=access_token()
+    if not isinstance(token,str) or not token or '\n' in token or '\r' in token:raise ValueError('服务凭证无效')
+    return call(ENDPOINTS[kind],data,token)
 
 # WGS84 conversion ported from bundled Wandergis coordtransform.js (MIT).
 # See assets/current/coordtransform-LICENSE for the upstream license.
