@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Query the hosted travel service. Credentials stay in ~/.travel-planner/service.json."""
+from contextlib import closing
+import sqlite3
 import argparse,datetime,getpass,json,math,os,pathlib,subprocess,sys,time,uuid
 BASE=os.environ.get('TRAVEL_SERVICE_URL','https://124.221.232.250').rstrip('/')
 if BASE not in ('https://124.221.232.250','https://www.xiaotouai.online'):raise ValueError('仅支持已配置的HTTPS旅行服务入口')
@@ -22,12 +24,16 @@ def save_config(value):
     with os.fdopen(fd,'w') as f:json.dump(value,f)
     os.chmod(CONFIG,0o600)
 
-def call(path,data,token=''):
+def call(path,data,token='',retry=True):
     r=subprocess.run(['curl','--silent','--show-error','--connect-timeout','10','--max-time','85','--proto','=https','--header','@-','--header','Content-Type: application/json','--data-binary',json.dumps(data,ensure_ascii=False),BASE+path],input=('Authorization: Bearer '+token) if token else '',text=True,capture_output=True)
     if r.returncode:raise ValueError(connection_error())
     try:result=json.loads(r.stdout)
     except ValueError:raise ValueError('旅行服务未返回JSON') from None
-    if 'error' in result:raise ValueError('旅行服务：'+str(result['error']))
+    if 'error' in result:
+        wait=result.get('retry_after')
+        if retry and path=='/v1/places/search' and result.get('retryable') is True and type(wait) is int and 1<=wait<=60:
+            time.sleep(wait+1);return call(path,data,token,retry=False)
+        raise ValueError('旅行服务：'+str(result['error'])+('；请等待 '+str(wait)+' 秒后再继续剩余地点' if wait else ''))
     return result
 
 def access_token():
@@ -46,6 +52,16 @@ def access_token():
 def request(kind,data):
     token=access_token()
     if not isinstance(token,str) or not token or '\n' in token or '\r' in token:raise ValueError('服务凭证无效')
+    if kind=='places':
+        # A transaction serializes independent CLI processes sharing this installation.
+        with closing(sqlite3.connect(CONFIG.parent/'place-pacing.sqlite',timeout=180)) as db, db:
+            db.execute('CREATE TABLE IF NOT EXISTS pacing (id INTEGER PRIMARY KEY, last REAL)')
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT last FROM pacing WHERE id=1').fetchone()
+            if row:time.sleep(max(0,min(6,6-(time.time()-row[0]))))
+            result=call(ENDPOINTS[kind],data,token)
+            db.execute('INSERT OR REPLACE INTO pacing VALUES (1,?)',(time.time(),))
+            return result
     return call(ENDPOINTS[kind],data,token)
 
 # WGS84 conversion ported from bundled Wandergis coordtransform.js (MIT).
